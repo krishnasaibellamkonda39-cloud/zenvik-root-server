@@ -4,6 +4,7 @@ const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const Groq = require('groq-sdk');
 const { google } = require('googleapis');
+const { handleGymMessage, handleGymInstagram } = require('./gymHandler');
 
 const app = express();
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
@@ -424,17 +425,12 @@ async function handleZenvik(from, text, name) {
   forwardToRespondIO(from, text, name).catch(() => {});
 }
 
-async function handleGym(from, text, name, h) {
-  const reply = h.autoReply || `Hi! 👋 Thanks for reaching out to *${h.name}*. We'll get back to you shortly!\n\n_Powered by Zenvik AI_`;
-  await sendWA(ZENVIK_PHONE_ID, h.token || ZENVIK_WA_TOKEN, from, reply);
-  if (supabase && h.gymId) {
-    try { await supabase.from('leads').insert({ gym_id: h.gymId, name, phone: from, source: 'whatsapp', status: 'enquiry', notes: text }); } catch(e) {}
-    try { await supabase.from('notifications').insert({ gym_id: h.gymId, title: `📩 New Lead — ${name}`, body: `${name}: "${text.slice(0,100)}"`, type: 'lead', is_read: false }); } catch(e) {}
-  }
+async function handleGym(from, text, name, h, source = 'whatsapp') {
+  await handleGymMessage(from, text, name, h, source);
 }
 
 // ── ROUTES ────────────────────────────────────────────
-app.get('/', (req, res) => res.json({ status: 'Zenvik AI Root Server', version: '4.1', products: ['gym','school','salon','website','vendor','voice'] }));
+app.get('/', (req, res) => res.json({ status: 'Zenvik AI Root Server', version: '4.2', products: ['gym','school','salon','website','vendor','voice'] }));
 
 app.get('/webhook', (req, res) => {
   if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === VERIFY_TOKEN) {
@@ -481,8 +477,7 @@ app.post('/webhook', async (req, res) => {
         if (supabase) {
           const { data: gym } = await supabase.from('gyms').select('id,name').eq('instagram_page_id', entry.id).maybeSingle();
           if (gym) {
-            try { await supabase.from('leads').insert({ gym_id: gym.id, name: 'Instagram User', phone: senderId, source: 'instagram', status: 'enquiry', notes: text }); } catch(e) {}
-            try { await supabase.from('notifications').insert({ gym_id: gym.id, title: '📸 New Instagram Lead', body: `"${text.slice(0,100)}"`, type: 'lead', is_read: false }); } catch(e) {}
+            handleGymInstagram(senderId, text, gym.id).catch(e => console.error('Instagram handler error:', e.message));
           } else {
             try { await supabase.from('zenvik_leads').insert({ name: `Instagram ${senderId}`, message: text, source: 'instagram' }); } catch(e) {}
           }
